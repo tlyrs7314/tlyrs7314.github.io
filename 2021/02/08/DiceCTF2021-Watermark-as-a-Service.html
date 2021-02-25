@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DiceCTF 2021 &amp;colon; Watermark as a Service (245pts, 20 solves)</title>
+  <meta name="description" content="Write up for DiceCTF2021 Watermark as a Service">
+  <link rel="canonical" href="https://tlyrs7314.github.io/2021/02/08/DiceCTF2021-Watermark-as-a-Service.html">
+  <link rel="alternate" type="application/rss+xml" title="Std0r Feed"
+    href="https://tlyrs7314.github.io/feed.xml">
+  
+  <link rel="shortcut icon" href="/images/favicon.png" type="image/png" />
+  
+  <!-- Styles -->
+  <!--<link href="https://fonts.googleapis.com/css?family=Lato:400,400i,700,700i%7CNoto+Serif:400,400i,700,700i&display=swap" rel="stylesheet">-->
+  <link href="/assets/css/style.css" rel="stylesheet">
+</head>
+<body>
+
+  <div id="page" class="site">
+    <div class="inner">
+      <header class="site-header">
+  
+  <p class="site-title"><a class="logo-text" href="/">Std0r</a></p>
+  
+  <nav class="site-navigation">
+    <div class="site-navigation-wrap">
+      <h2 class="screen-reader-text">Main navigation</h2>
+      <ul class="menu">
+        
+        
+        
+        <li class="menu-item ">
+          <a class="" href="/archive">Archive</a>
+        </li>
+        
+      </ul><!-- .menu -->
+      <button id="menu-close" class="menu-toggle"><span class="screen-reader-text">Close Menu</span><span
+          class="icon-close" aria-hidden="true"></span></button>
+    </div><!-- .site-navigation-wrap -->
+  </nav><!-- .site-navigation -->
+  <button id="menu-open" class="menu-toggle"><span class="screen-reader-text">Open Menu</span><span class="icon-menu" aria-hidden="true"></span></button>
+</header>
+
+
+
+      <main class="main-content fadeInDown delay_075s">
+
+  <article class="post">
+    <header class="post-header">
+      <time class="post-date" datetime="2021-02-08">February 8, 2021</time>
+      <h1 class="post-title">DiceCTF 2021 &colon; Watermark as a Service (245pts, 20 solves)</h1>
+      <div class="post-meta">
+        By <span class="post-author">Stdor</span><span class="post-tags"> in <a href="/tags#ctf" rel="tag">ctf</a>, <a href="/tags#ctf-writeups" rel="tag">ctf-writeups</a>, <a href="/tags#ctf-web" rel="tag">ctf-web</a></span>
+      </div><!-- .post-meta -->
+      
+      <figure class="post-thumbnail image-card width-wide">
+        <img src="/images/2021-02-08-DiceCTF2021-Watermark-as-a-Service/description.png" alt="DiceCTF 2021 &colon; Watermark as a Service (245pts, 20 solves)">
+      </figure><!-- .post-thumbnail -->
+      
+    </header><!-- .post-header -->
+    <div class="post-content">
+      <p>I solved an interesting web challenge in Dice CTF 2021. There has been quite a lot of challenges related to cloud services recently, and it’s a good time to read more cloud API documentations…</p>
+
+<!--more-->
+
+<p><a href="https://github.com/dicegang/dicectf-2021-challs/tree/master/web/watermark-as-a-service">Challenge Source</a></p>
+
+<h2 id="tldr">TL;DR</h2>
+
+<ul>
+  <li>SSRF with <a href="https://bit.ly">bit.ly</a> bypass</li>
+  <li>Google Cloud API Docker image leakage</li>
+</ul>
+
+<h2 id="writeup">Writeup</h2>
+
+<p>The service running on <a href="https://waas.dicec.tf">waas.dicec.tf</a> is a simple website snapshot app powered by puppeteer, a library for controlling a headless chrome. The source code has some protections to prevent the server from visiting the google metadata server. Our first step is to bypass the restrictions and visit it to collect credentials and metadata about the project on Google Cloud.</p>
+
+<h3 id="ssrf">SSRF</h3>
+
+<p>Using <a href="https://en.wikipedia.org/wiki/IPv4#Address_representations">dotless-decimal IP</a> (For example, <code class="language-plaintext highlighter-rouge">http://192.0.2.235</code>  can be written as <code class="language-plaintext highlighter-rouge">http://3221226219</code>.) and <a href="http://xip.io">xip.io</a> did not work because of the regex check and URL parser used in the source code. At last I managed to bypass the checking with <a href="https://bit.ly">bit.ly</a>, a URL shortening service. Basically, <a href="https://bit.ly">bit.ly</a> returns a <code class="language-plaintext highlighter-rouge">HTTP 302 Found</code> and a <code class="language-plaintext highlighter-rouge">Location</code> Header, asking the client to go to the new location. With this trick, I was able to visit the metadata server.</p>
+
+<p>Visiting  <a href="http://metadata.google.internal/computeMetadata/v1/instance/">http://metadata.google.internal/computeMetadata/v1/instance/</a>:</p>
+
+<figure class="image-card width-wide caption">
+  <img src="/images/2021-02-08-DiceCTF2021-Watermark-as-a-Service/v1api.png" alt="" />
+  
+</figure>
+
+<h3 id="google-cloud-api-leakage">Google Cloud API Leakage</h3>
+
+<p>Now that’s some progress! But according to the docs we would need a <code class="language-plaintext highlighter-rouge">Metadata-Flavor: Google</code> header in order to access the server. It seems impossible to inject a header after reviewing the nodejs code. Luckily, there is still a legacy <code class="language-plaintext highlighter-rouge">v1beta1</code> api, and with that we could leak some very important infos:</p>
+
+<ol>
+  <li>http://metadata.google.internal/computeMetadata/v1beta1/instance/?recursive=true</li>
+</ol>
+
+<figure class="image-card width-wide caption">
+  <img src="/images/2021-02-08-DiceCTF2021-Watermark-as-a-Service/instance-recursive.png" alt="" />
+  
+</figure>
+
+<ol>
+  <li>http://metadata.google.internal/computeMetadata/v1beta1/instance/service-accounts/default/token?alt=json</li>
+</ol>
+
+<figure class="image-card width-wide caption">
+  <img src="/images/2021-02-08-DiceCTF2021-Watermark-as-a-Service/token.png" alt="" />
+  
+</figure>
+
+<p>Summary:</p>
+
+<ul>
+  <li>There is a docker image hosted on Google Cloud at <code class="language-plaintext highlighter-rouge">gcr.io/dicegang-waas/waas</code>.</li>
+  <li>We have the token for Authorization.</li>
+</ul>
+
+<p>And that means we can pull the image from the Cloud with <a href="https://cloud.google.com/container-registry/docs/advanced-authentication">docker auth</a>!</p>
+
+<p>To extract the token, I have used <code class="language-plaintext highlighter-rouge">tesseract-ocr</code> to get a preliminary transcript of the token. It was able to recognize ~80% of the token accurately, but the rest had to be corrected by hand.</p>
+
+<p>With the token, we can now pull the image:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>docker login <span class="nt">-u</span> oauth2accesstoken <span class="nt">-p</span> <span class="s2">"&lt;token&gt;"</span> gcr.io
+<span class="nv">$ </span>docker pull gcr.io/dicegang-waas/waas
+</code></pre></div></div>
+
+<p>And by running the image we got the flag!</p>
+
+<figure class="image-card width-wide caption">
+  <img src="/images/2021-02-08-DiceCTF2021-Watermark-as-a-Service/flag.png" alt="" />
+  
+</figure>
+
+<p>flag: <code class="language-plaintext highlighter-rouge">dice{the_cloud_is_just_someone_elses_computer}</code></p>
+
+<h2 id="references">References</h2>
+
+<ol>
+  <li><a href="https://cloud.google.com/compute/docs/storing-retrieving-metadata">https://cloud.google.com/compute/docs/storing-retrieving-metadata</a></li>
+  <li><a href="https://cloud.google.com/container-registry/docs/advanced-authentication">https://cloud.google.com/container-registry/docs/advanced-authentication</a></li>
+  <li><a href="https://ctftime.org/writeup/24948">tpc, Balsn CTF 2020</a></li>
+</ol>
+
+    </div><!-- .post-content -->
+    <div class="post-share">
+      <span>Share:</span>
+      <a target="_blank"
+        href="https://twitter.com/intent/tweet?text=DiceCTF%202021%20&colon;%20Watermark%20as%20a%20Service%20(245pts,%2020%20solves)&amp;url=https://tlyrs7314.github.io/2021/02/08/DiceCTF2021-Watermark-as-a-Service.html" rel="noopener">Twitter</a>
+    </div><!-- .share-post -->
+  </article><!-- .post -->
+
+  
+
+</main><!-- .main-content -->
+
+      <footer class="site-footer">
+  <div class="offsite-links">
+    
+      
+<a href="https://github.com/tlyrs7314" target="_blank" rel="noopener">
+  <span class="fa-github" aria-hidden="true"></span>
+  <span class="screen-reader-text">GitHub</span>
+</a>
+
+<a href="/feed.xml" target="_blank" rel="noopener">
+  <span class="fa-rss" aria-hidden="true"></span>
+  <span class="screen-reader-text">RSS</span>
+</a>
+
+    
+  </div><!-- .offsite-links -->
+  <div class="footer-bottom">
+    <div class="site-info">
+      <p>© Stdor 2021. Theme adapted from <a href="https://justgoodthemes.com/ghost-themes/scriptor">Scriptor</a>.</p>
+
+    </div><!-- .site-info -->
+    <a href="#page" id="back-to-top" class="back-to-top"><span class="screen-reader-text">Back to the top </span>&#8593;</a>
+  </div><!-- .footer-bottom -->
+</footer><!-- .site-footer -->
+
+    </div><!-- .inner -->
+  </div><!-- .site -->
+
+  <!-- Scripts -->
+  
+  <script src="/assets/js/plugins.js"></script>
+  <script src="/assets/js/custom.js"></script>
+
+</body>
+</html>

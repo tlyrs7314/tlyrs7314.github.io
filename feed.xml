@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+    <channel>
+        <title>Std0r</title>
+        <description>Stdor's blog</description>
+        <link>https://tlyrs7314.github.io/</link>
+        <atom:link href="https://tlyrs7314.github.io/feed.xml" rel="self" type="application/rss+xml"/>
+        <pubDate>Fri, 26 Feb 2021 02:05:08 +0800</pubDate>
+        <lastBuildDate>Fri, 26 Feb 2021 02:05:08 +0800</lastBuildDate>
+        <generator>Jekyll v3.9.0</generator>
+        
+            <item>
+                <title>DiceCTF 2021 &amp;colon; Watermark as a Service (245pts, 20 solves)</title>
+                <description>&lt;p&gt;I solved an interesting web challenge in Dice CTF 2021. There has been quite a lot of challenges related to cloud services recently, and it’s a good time to read more cloud API documentations…&lt;/p&gt;
+
+&lt;!--more--&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://github.com/dicegang/dicectf-2021-challs/tree/master/web/watermark-as-a-service&quot;&gt;Challenge Source&lt;/a&gt;&lt;/p&gt;
+
+&lt;h2 id=&quot;tldr&quot;&gt;TL;DR&lt;/h2&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;SSRF with &lt;a href=&quot;https://bit.ly&quot;&gt;bit.ly&lt;/a&gt; bypass&lt;/li&gt;
+  &lt;li&gt;Google Cloud API Docker image leakage&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;writeup&quot;&gt;Writeup&lt;/h2&gt;
+
+&lt;p&gt;The service running on &lt;a href=&quot;https://waas.dicec.tf&quot;&gt;waas.dicec.tf&lt;/a&gt; is a simple website snapshot app powered by puppeteer, a library for controlling a headless chrome. The source code has some protections to prevent the server from visiting the google metadata server. Our first step is to bypass the restrictions and visit it to collect credentials and metadata about the project on Google Cloud.&lt;/p&gt;
+
+&lt;h3 id=&quot;ssrf&quot;&gt;SSRF&lt;/h3&gt;
+
+&lt;p&gt;Using &lt;a href=&quot;https://en.wikipedia.org/wiki/IPv4#Address_representations&quot;&gt;dotless-decimal IP&lt;/a&gt; (For example, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;http://192.0.2.235&lt;/code&gt;  can be written as &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;http://3221226219&lt;/code&gt;.) and &lt;a href=&quot;http://xip.io&quot;&gt;xip.io&lt;/a&gt; did not work because of the regex check and URL parser used in the source code. At last I managed to bypass the checking with &lt;a href=&quot;https://bit.ly&quot;&gt;bit.ly&lt;/a&gt;, a URL shortening service. Basically, &lt;a href=&quot;https://bit.ly&quot;&gt;bit.ly&lt;/a&gt; returns a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HTTP 302 Found&lt;/code&gt; and a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Location&lt;/code&gt; Header, asking the client to go to the new location. With this trick, I was able to visit the metadata server.&lt;/p&gt;
+
+&lt;p&gt;Visiting  &lt;a href=&quot;http://metadata.google.internal/computeMetadata/v1/instance/&quot;&gt;http://metadata.google.internal/computeMetadata/v1/instance/&lt;/a&gt;:&lt;/p&gt;
+
+&lt;figure class=&quot;image-card width-wide caption&quot;&gt;
+  &lt;img src=&quot;/images/2021-02-08-DiceCTF2021-Watermark-as-a-Service/v1api.png&quot; alt=&quot;&quot; /&gt;
+  
+&lt;/figure&gt;
+
+&lt;h3 id=&quot;google-cloud-api-leakage&quot;&gt;Google Cloud API Leakage&lt;/h3&gt;
+
+&lt;p&gt;Now that’s some progress! But according to the docs we would need a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Metadata-Flavor: Google&lt;/code&gt; header in order to access the server. It seems impossible to inject a header after reviewing the nodejs code. Luckily, there is still a legacy &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;v1beta1&lt;/code&gt; api, and with that we could leak some very important infos:&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;http://metadata.google.internal/computeMetadata/v1beta1/instance/?recursive=true&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;figure class=&quot;image-card width-wide caption&quot;&gt;
+  &lt;img src=&quot;/images/2021-02-08-DiceCTF2021-Watermark-as-a-Service/instance-recursive.png&quot; alt=&quot;&quot; /&gt;
+  
+&lt;/figure&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;http://metadata.google.internal/computeMetadata/v1beta1/instance/service-accounts/default/token?alt=json&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;figure class=&quot;image-card width-wide caption&quot;&gt;
+  &lt;img src=&quot;/images/2021-02-08-DiceCTF2021-Watermark-as-a-Service/token.png&quot; alt=&quot;&quot; /&gt;
+  
+&lt;/figure&gt;
+
+&lt;p&gt;Summary:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;There is a docker image hosted on Google Cloud at &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;gcr.io/dicegang-waas/waas&lt;/code&gt;.&lt;/li&gt;
+  &lt;li&gt;We have the token for Authorization.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;And that means we can pull the image from the Cloud with &lt;a href=&quot;https://cloud.google.com/container-registry/docs/advanced-authentication&quot;&gt;docker auth&lt;/a&gt;!&lt;/p&gt;
+
+&lt;p&gt;To extract the token, I have used &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;tesseract-ocr&lt;/code&gt; to get a preliminary transcript of the token. It was able to recognize ~80% of the token accurately, but the rest had to be corrected by hand.&lt;/p&gt;
+
+&lt;p&gt;With the token, we can now pull the image:&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nv&quot;&gt;$ &lt;/span&gt;docker login &lt;span class=&quot;nt&quot;&gt;-u&lt;/span&gt; oauth2accesstoken &lt;span class=&quot;nt&quot;&gt;-p&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&amp;lt;token&amp;gt;&quot;&lt;/span&gt; gcr.io
+&lt;span class=&quot;nv&quot;&gt;$ &lt;/span&gt;docker pull gcr.io/dicegang-waas/waas
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And by running the image we got the flag!&lt;/p&gt;
+
+&lt;figure class=&quot;image-card width-wide caption&quot;&gt;
+  &lt;img src=&quot;/images/2021-02-08-DiceCTF2021-Watermark-as-a-Service/flag.png&quot; alt=&quot;&quot; /&gt;
+  
+&lt;/figure&gt;
+
+&lt;p&gt;flag: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dice{the_cloud_is_just_someone_elses_computer}&lt;/code&gt;&lt;/p&gt;
+
+&lt;h2 id=&quot;references&quot;&gt;References&lt;/h2&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;https://cloud.google.com/compute/docs/storing-retrieving-metadata&quot;&gt;https://cloud.google.com/compute/docs/storing-retrieving-metadata&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://cloud.google.com/container-registry/docs/advanced-authentication&quot;&gt;https://cloud.google.com/container-registry/docs/advanced-authentication&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://ctftime.org/writeup/24948&quot;&gt;tpc, Balsn CTF 2020&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+</description>
+                <pubDate>Mon, 08 Feb 2021 00:00:00 +0800</pubDate>
+                <link>https://tlyrs7314.github.io/2021/02/08/DiceCTF2021-Watermark-as-a-Service.html</link>
+                <guid isPermaLink="true">https://tlyrs7314.github.io/2021/02/08/DiceCTF2021-Watermark-as-a-Service.html</guid>
+                
+                <category>ctf</category>
+                
+                <category>ctf-writeups</category>
+                
+                <category>ctf-web</category>
+                
+                
+            </item>
+        
+    </channel>
+</rss>
